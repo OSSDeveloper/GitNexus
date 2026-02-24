@@ -9,13 +9,9 @@ Indexes any codebase into a knowledge graph — every dependency, call chain, cl
 [![npm version](https://img.shields.io/npm/v/gitnexus.svg)](https://www.npmjs.com/package/gitnexus)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial-blue.svg)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
 
-
-
 https://github.com/user-attachments/assets/172685ba-8e54-4ea7-9ad1-e31a3398da72
 
-
-
-> *Like DeepWiki, but deeper.* DeepWiki helps you *understand* code. GitNexus lets you *analyze* it — because a knowledge graph tracks every relationship, not just descriptions.
+> _Like DeepWiki, but deeper._ DeepWiki helps you _understand_ code. GitNexus lets you _analyze_ it — because a knowledge graph tracks every relationship, not just descriptions.
 
 **TL;DR:** The **Web UI** is a quick way to chat with any repo. The **CLI + MCP** is how you make your AI agent actually reliable — it gives Cursor, Claude Code, and friends a deep architectural view of your codebase so they stop missing dependencies, breaking call chains, and shipping blind edits. Even smaller models get full architectural clarity, making it compete with goliath models.
 
@@ -25,18 +21,17 @@ https://github.com/user-attachments/assets/172685ba-8e54-4ea7-9ad1-e31a3398da72
 
 [![Star History Chart](https://api.star-history.com/svg?repos=abhigyanpatwari/GitNexus&type=date&legend=top-left)](https://www.star-history.com/#abhigyanpatwari/GitNexus&type=date&legend=top-left)
 
-
 ## Two Ways to Use GitNexus
 
-|                   | **CLI + MCP**                                            | **Web UI**                                             |
-| ----------------- | -------------------------------------------------------------- | ------------------------------------------------------------ |
-| **What**    | Index repos locally, connect AI agents via MCP                 | Visual graph explorer + AI chat in browser                   |
-| **For**     | Daily development with Cursor, Claude Code, Windsurf, OpenCode | Quick exploration, demos, one-off analysis                   |
+|             | **CLI + MCP**                                                  | **Web UI**                                                           |
+| ----------- | -------------------------------------------------------------- | -------------------------------------------------------------------- |
+| **What**    | Index repos locally, connect AI agents via MCP                 | Visual graph explorer + AI chat in browser                           |
+| **For**     | Daily development with Cursor, Claude Code, Windsurf, OpenCode | Quick exploration, demos, one-off analysis                           |
 | **Scale**   | Full repos, any size                                           | Limited by browser memory (~5k files), or unlimited via backend mode |
-| **Install** | `npm install -g gitnexus`                                    | No install —[gitnexus.vercel.app](https://gitnexus.vercel.app) |
-| **Storage** | KuzuDB native (fast, persistent)                               | KuzuDB WASM (in-memory, per session)                         |
-| **Parsing** | Tree-sitter native bindings                                    | Tree-sitter WASM                                             |
-| **Privacy** | Everything local, no network                                   | Everything in-browser, no server                             |
+| **Install** | `npm install -g gitnexus`                                      | No install —[gitnexus.vercel.app](https://gitnexus.vercel.app)       |
+| **Storage** | KuzuDB native (fast, persistent)                               | KuzuDB WASM (in-memory, per session)                                 |
+| **Parsing** | Tree-sitter native bindings                                    | Tree-sitter WASM                                                     |
+| **Privacy** | Everything local, no network                                   | Everything in-browser, no server                                     |
 
 > **Bridge mode:** `gitnexus serve` connects the two — the web UI auto-detects the local server and can browse all your CLI-indexed repos without re-uploading or re-indexing.
 
@@ -63,14 +58,15 @@ To configure MCP for your editor, run `npx gitnexus setup` once — or set it up
 
 ### Editor Support
 
-| Editor                | MCP | Skills | Hooks (auto-augment) | Support        |
-| --------------------- | --- | ------ | -------------------- | -------------- |
-| **Claude Code** | Yes | Yes    | Yes (PreToolUse)     | **Full** |
-| **Cursor**      | Yes | Yes    | —                   | MCP + Skills   |
-| **Windsurf**    | Yes | —     | —                   | MCP            |
-| **OpenCode**    | Yes | Yes    | —                   | MCP + Skills   |
+| Editor                 | MCP | Skills | Hooks (auto-augment) | Support      |
+| ---------------------- | --- | ------ | -------------------- | ------------ |
+| **Claude Code**        | Yes | Yes    | Yes (PreToolUse)     | **Full**     |
+| **Google Antigravity** | Yes | Yes    | Yes (PreToolUse)     | **Full**     |
+| **Cursor**             | Yes | Yes    | —                    | MCP + Skills |
+| **Windsurf**           | Yes | —      | —                    | MCP          |
+| **OpenCode**           | Yes | Yes    | —                    | MCP + Skills |
 
-> **Claude Code** gets the deepest integration: MCP tools + agent skills + PreToolUse hooks that automatically enrich grep/glob/bash calls with knowledge graph context.
+> **Claude Code** and **Google Antigravity** get the deepest integrations: MCP tools + agent skills + PreToolUse hooks that automatically enrich generic search (grep/glob/bash) calls with knowledge graph context.
 
 If you prefer manual configuration:
 
@@ -78,6 +74,13 @@ If you prefer manual configuration:
 
 ```bash
 claude mcp add gitnexus -- npx -y gitnexus@latest mcp
+```
+
+**Google Antigravity IDE** (full support — MCP + skills + hooks):
+Because Antigravity uses a deterministic file-based agent rule system, the integration is bundled as a standalone package.
+
+```bash
+npm install -g gitnexus-antigravity
 ```
 
 **Cursor** (`~/.cursor/mcp.json` — global, works for all projects):
@@ -128,22 +131,22 @@ gitnexus wiki --base-url <url>   # Wiki with custom LLM API base URL
 
 **7 tools** exposed via MCP:
 
-| Tool               | What It Does                                                      | `repo` Param |
-| ------------------ | ----------------------------------------------------------------- | -------------- |
-| `list_repos`     | Discover all indexed repositories                                 | —             |
-| `query`          | Process-grouped hybrid search (BM25 + semantic + RRF)             | Optional       |
-| `context`        | 360-degree symbol view — categorized refs, process participation | Optional       |
-| `impact`         | Blast radius analysis with depth grouping and confidence          | Optional       |
-| `detect_changes` | Git-diff impact — maps changed lines to affected processes       | Optional       |
-| `rename`         | Multi-file coordinated rename with graph + text search            | Optional       |
-| `cypher`         | Raw Cypher graph queries                                          | Optional       |
+| Tool             | What It Does                                                     | `repo` Param |
+| ---------------- | ---------------------------------------------------------------- | ------------ |
+| `list_repos`     | Discover all indexed repositories                                | —            |
+| `query`          | Process-grouped hybrid search (BM25 + semantic + RRF)            | Optional     |
+| `context`        | 360-degree symbol view — categorized refs, process participation | Optional     |
+| `impact`         | Blast radius analysis with depth grouping and confidence         | Optional     |
+| `detect_changes` | Git-diff impact — maps changed lines to affected processes       | Optional     |
+| `rename`         | Multi-file coordinated rename with graph + text search           | Optional     |
+| `cypher`         | Raw Cypher graph queries                                         | Optional     |
 
 > When only one repo is indexed, the `repo` parameter is optional. With multiple repos, specify which one: `query({query: "auth", repo: "my-app"})`.
 
 **Resources** for instant context:
 
-| Resource                                  | Purpose                                              |
-| ----------------------------------------- | ---------------------------------------------------- |
+| Resource                                | Purpose                                              |
+| --------------------------------------- | ---------------------------------------------------- |
 | `gitnexus://repos`                      | List all indexed repositories (read this first)      |
 | `gitnexus://repo/{name}/context`        | Codebase stats, staleness check, and available tools |
 | `gitnexus://repo/{name}/clusters`       | All functional clusters with cohesion scores         |
@@ -154,9 +157,9 @@ gitnexus wiki --base-url <url>   # Wiki with custom LLM API base URL
 
 **2 MCP prompts** for guided workflows:
 
-| Prompt            | What It Does                                                              |
-| ----------------- | ------------------------------------------------------------------------- |
-| `detect_impact` | Pre-commit change analysis — scope, affected processes, risk level       |
+| Prompt          | What It Does                                                              |
+| --------------- | ------------------------------------------------------------------------- |
+| `detect_impact` | Pre-commit change analysis — scope, affected processes, risk level        |
 | `generate_map`  | Architecture documentation from the knowledge graph with mermaid diagrams |
 
 **4 agent skills** installed to `.claude/skills/` automatically:
@@ -432,16 +435,16 @@ The wiki generator reads the indexed graph structure, groups files into modules 
 
 ## Tech Stack
 
-| Layer                     | CLI                                   | Web                                     |
-| ------------------------- | ------------------------------------- | --------------------------------------- |
+| Layer               | CLI                                   | Web                                     |
+| ------------------- | ------------------------------------- | --------------------------------------- |
 | **Runtime**         | Node.js (native)                      | Browser (WASM)                          |
 | **Parsing**         | Tree-sitter native bindings           | Tree-sitter WASM                        |
 | **Database**        | KuzuDB native                         | KuzuDB WASM                             |
 | **Embeddings**      | HuggingFace transformers.js (GPU/CPU) | transformers.js (WebGPU/WASM)           |
 | **Search**          | BM25 + semantic + RRF                 | BM25 + semantic + RRF                   |
 | **Agent Interface** | MCP (stdio)                           | LangChain ReAct agent                   |
-| **Visualization**   | —                                    | Sigma.js + Graphology (WebGL)           |
-| **Frontend**        | —                                    | React 18, TypeScript, Vite, Tailwind v4 |
+| **Visualization**   | —                                     | Sigma.js + Graphology (WebGL)           |
+| **Frontend**        | —                                     | React 18, TypeScript, Vite, Tailwind v4 |
 | **Clustering**      | Graphology                            | Graphology                              |
 | **Concurrency**     | Worker threads + async                | Web Workers + Comlink                   |
 
@@ -457,11 +460,11 @@ The wiki generator reads the indexed graph structure, groups files into modules 
 
 ### Recently Completed
 
-- [X] Wiki Generation, Multi-File Rename, Git-Diff Impact Analysis
-- [X] Process-Grouped Search, 360-Degree Context, Claude Code Hooks
-- [X] Multi-Repo MCP, Zero-Config Setup, 9 Language Support
-- [X] Community Detection, Process Detection, Confidence Scoring
-- [X] Hybrid Search, Vector Index
+- [x] Wiki Generation, Multi-File Rename, Git-Diff Impact Analysis
+- [x] Process-Grouped Search, 360-Degree Context, Claude Code Hooks
+- [x] Multi-Repo MCP, Zero-Config Setup, 9 Language Support
+- [x] Community Detection, Process Detection, Confidence Scoring
+- [x] Hybrid Search, Vector Index
 
 ---
 
