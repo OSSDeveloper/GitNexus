@@ -54,7 +54,7 @@ function mergeMcpConfig(existing) {
   const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
   existing.mcpServers.gitnexus = {
     command: npxCmd,
-    args: ["-y", "gitnexus@latest", "mcp"],
+    args: ["-y", "gitnexus", "mcp"],
   };
   return existing;
 }

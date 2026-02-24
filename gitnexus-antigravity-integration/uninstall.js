@@ -30,7 +30,7 @@ async function writeJsonFile(filePath, data) {
 }
 
 async function removeMCPConfig(antigravityDir) {
-  const mcpPath = path.join(antigravityDir, 'mcp.json');
+  const mcpPath = path.join(antigravityDir, 'mcp_config.json');
   try {
     const existing = await readJsonFile(mcpPath);
     if (existing && existing.mcpServers && existing.mcpServers.gitnexus) {
