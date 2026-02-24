@@ -51,15 +51,16 @@ function mergeMcpConfig(existing) {
   if (!existing.mcpServers || typeof existing.mcpServers !== "object")
     existing.mcpServers = {};
 
+  const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
   existing.mcpServers.gitnexus = {
-    command: "npx",
+    command: npxCmd,
     args: ["-y", "gitnexus@latest", "mcp"],
   };
   return existing;
 }
 
 async function configureMCP(antigravityDir) {
-  const mcpPath = path.join(antigravityDir, "mcp.json");
+  const mcpPath = path.join(antigravityDir, "mcp_config.json");
   try {
     const existing = await readJsonFile(mcpPath);
     const updated = mergeMcpConfig(existing);

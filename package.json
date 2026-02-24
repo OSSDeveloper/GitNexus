@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "gitnexus-antigravity": "file:gitnexus-antigravity-integration"
+  }
+}
