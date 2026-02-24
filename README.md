@@ -80,7 +80,7 @@ claude mcp add gitnexus -- npx -y gitnexus@latest mcp
 Because Antigravity uses a deterministic file-based agent rule system, the integration is bundled as a standalone package.
 
 ```bash
-npm install -g gitnexus-antigravity
+npm install -g ./gitnexus-antigravity-integration
 ```
 
 **Cursor** (`~/.cursor/mcp.json` — global, works for all projects):
