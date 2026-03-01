@@ -39,6 +39,8 @@ const getWasmPath = (language: SupportedLanguages, filePath?: string): string =>
         [SupportedLanguages.CSharp]: '/wasm/csharp/tree-sitter-csharp.wasm',
         [SupportedLanguages.Go]: '/wasm/go/tree-sitter-go.wasm',
         [SupportedLanguages.Rust]: '/wasm/rust/tree-sitter-rust.wasm',
+        [SupportedLanguages.PHP]: '/wasm/php/tree-sitter-php.wasm',
+        [SupportedLanguages.Swift]: '/wasm/swift/tree-sitter-swift.wasm',
     };
     
     return languageFileMap[language];

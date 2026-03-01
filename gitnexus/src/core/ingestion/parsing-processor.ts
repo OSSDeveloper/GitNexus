@@ -6,6 +6,7 @@ import { generateId } from '../../lib/utils.js';
 import { SymbolTable } from './symbol-table.js';
 import { ASTCache } from './ast-cache.js';
 import { getLanguageFromFilename, yieldToEventLoop } from './utils.js';
+import { detectFrameworkFromAST } from './framework-detection.js';
 import { WorkerPool } from './workers/worker-pool.js';
 import type { ParseWorkerResult, ParseWorkerInput, ExtractedImport, ExtractedCall, ExtractedHeritage } from './workers/parse-worker.js';
 
@@ -16,6 +17,38 @@ export interface WorkerExtractedData {
   calls: ExtractedCall[];
   heritage: ExtractedHeritage[];
 }
+
+const getDefinitionNodeFromCaptures = (captureMap: Record<string, any>): any | null => {
+  const definitionKeys = [
+    'definition.function',
+    'definition.class',
+    'definition.interface',
+    'definition.method',
+    'definition.struct',
+    'definition.enum',
+    'definition.namespace',
+    'definition.module',
+    'definition.trait',
+    'definition.impl',
+    'definition.type',
+    'definition.const',
+    'definition.static',
+    'definition.typedef',
+    'definition.macro',
+    'definition.union',
+    'definition.property',
+    'definition.record',
+    'definition.delegate',
+    'definition.annotation',
+    'definition.constructor',
+    'definition.template',
+  ];
+
+  for (const key of definitionKeys) {
+    if (captureMap[key]) return captureMap[key];
+  }
+  return null;
+};
 
 // ============================================================================
 // EXPORT DETECTION - Language-specific visibility detection
@@ -114,6 +147,17 @@ const isNodeExported = (node: any, name: string, language: string): boolean => {
     case 'cpp':
       return false;
 
+    // Swift: Check for 'public' or 'open' access modifiers
+    case 'swift':
+      while (current) {
+        if (current.type === 'modifiers' || current.type === 'visibility_modifier') {
+          const text = current.text || '';
+          if (text.includes('public') || text.includes('open')) return true;
+        }
+        current = current.parent;
+      }
+      return false;
+
     default:
       return false;
   }
@@ -129,28 +173,25 @@ const processParsingWithWorkers = async (
   symbolTable: SymbolTable,
   astCache: ASTCache,
   workerPool: WorkerPool,
-  onFileProgress?: FileProgressCallback
+  onFileProgress?: FileProgressCallback,
 ): Promise<WorkerExtractedData> => {
   // Filter to parseable files only
   const parseableFiles: ParseWorkerInput[] = [];
   for (const file of files) {
     const lang = getLanguageFromFilename(file.path);
-    if (lang) {
-      parseableFiles.push({ path: file.path, content: file.content });
-    }
+    if (lang) parseableFiles.push({ path: file.path, content: file.content });
   }
 
   if (parseableFiles.length === 0) return { imports: [], calls: [], heritage: [] };
 
   const total = files.length;
 
-  // Dispatch to worker pool — pool handles splitting into chunks
-  // Workers send progress messages during parsing so the bar updates smoothly
+  // Dispatch to worker pool — pool handles splitting into chunks and sub-batching
   const chunkResults = await workerPool.dispatch<ParseWorkerInput, ParseWorkerResult>(
     parseableFiles,
     (filesProcessed) => {
       onFileProgress?.(Math.min(filesProcessed, total), total, 'Parsing...');
-    }
+    },
   );
 
   // Merge results from all workers into graph and symbol table
@@ -290,14 +331,25 @@ const processParsingSequential = async (
       const node: GraphNode = {
         id: nodeId,
         label: nodeLabel as any,
-        properties: {
+        properties: (() => {
+          const definitionNode = getDefinitionNodeFromCaptures(captureMap);
+          const frameworkHint = definitionNode
+            ? detectFrameworkFromAST(language, definitionNode.text || '')
+            : null;
+
+          return {
           name: nodeName,
           filePath: file.path,
           startLine: nameNode.startPosition.row,
           endLine: nameNode.endPosition.row,
           language: language,
           isExported: isNodeExported(nameNode, nodeName, language),
-        }
+          ...(frameworkHint ? {
+            astFrameworkMultiplier: frameworkHint.entryPointMultiplier,
+            astFrameworkReason: frameworkHint.reason,
+          } : {}),
+          };
+        })()
       };
 
       graph.addNode(node);

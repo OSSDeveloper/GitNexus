@@ -18,6 +18,27 @@ export type ImportMap = Map<string, Set<string>>;
 
 export const createImportMap = (): ImportMap => new Map();
 
+/** Pre-built lookup structures for import resolution. Build once, reuse across chunks. */
+export interface ImportResolutionContext {
+  allFilePaths: Set<string>;
+  allFileList: string[];
+  normalizedFileList: string[];
+  suffixIndex: SuffixIndex;
+  resolveCache: Map<string, string | null>;
+}
+
+/** Max entries in the resolve cache. Beyond this, the cache is cleared to bound memory.
+ *  100K entries ≈ 15MB — covers the most common import patterns. */
+const RESOLVE_CACHE_CAP = 100_000;
+
+export function buildImportResolutionContext(allPaths: string[]): ImportResolutionContext {
+  const allFileList = allPaths;
+  const normalizedFileList = allFileList.map(p => p.replace(/\\/g, '/'));
+  const allFilePaths = new Set(allFileList);
+  const suffixIndex = buildSuffixIndex(normalizedFileList, allFileList);
+  return { allFilePaths, allFileList, normalizedFileList, suffixIndex, resolveCache: new Map() };
+}
+
 // ============================================================================
 // LANGUAGE-SPECIFIC CONFIG
 // ============================================================================
@@ -101,6 +122,73 @@ async function loadGoModulePath(repoRoot: string): Promise<GoModuleConfig | null
   return null;
 }
 
+/** PHP Composer PSR-4 autoload config */
+interface ComposerConfig {
+  /** Map of namespace prefix -> directory (e.g., "App\\" -> "app/") */
+  psr4: Map<string, string>;
+}
+
+async function loadComposerConfig(repoRoot: string): Promise<ComposerConfig | null> {
+  try {
+    const composerPath = path.join(repoRoot, 'composer.json');
+    const raw = await fs.readFile(composerPath, 'utf-8');
+    const composer = JSON.parse(raw);
+    const psr4Raw = composer.autoload?.['psr-4'] ?? {};
+    const psr4Dev = composer['autoload-dev']?.['psr-4'] ?? {};
+    const merged = { ...psr4Raw, ...psr4Dev };
+
+    const psr4 = new Map<string, string>();
+    for (const [ns, dir] of Object.entries(merged)) {
+      const nsNorm = (ns as string).replace(/\\+$/, '');
+      const dirNorm = (dir as string).replace(/\\/g, '/').replace(/\/+$/, '');
+      psr4.set(nsNorm, dirNorm);
+    }
+
+    if (isDev) {
+      console.log(`📦 Loaded ${psr4.size} PSR-4 mappings from composer.json`);
+    }
+    return { psr4 };
+  } catch {
+    return null;
+  }
+}
+
+/** Swift Package Manager module config */
+interface SwiftPackageConfig {
+  /** Map of target name -> source directory path (e.g., "SiuperModel" -> "Package/Sources/SiuperModel") */
+  targets: Map<string, string>;
+}
+
+async function loadSwiftPackageConfig(repoRoot: string): Promise<SwiftPackageConfig | null> {
+  // Swift imports are module-name based (e.g., `import SiuperModel`)
+  // SPM convention: Sources/<TargetName>/ or Package/Sources/<TargetName>/
+  // We scan for these directories to build a target map
+  const targets = new Map<string, string>();
+
+  const sourceDirs = ['Sources', 'Package/Sources', 'src'];
+  for (const sourceDir of sourceDirs) {
+    try {
+      const fullPath = path.join(repoRoot, sourceDir);
+      const entries = await fs.readdir(fullPath, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          targets.set(entry.name, sourceDir + '/' + entry.name);
+        }
+      }
+    } catch {
+      // Directory doesn't exist
+    }
+  }
+
+  if (targets.size > 0) {
+    if (isDev) {
+      console.log(`📦 Loaded ${targets.size} Swift package targets`);
+    }
+    return { targets };
+  }
+  return null;
+}
+
 // ============================================================================
 // IMPORT PATH RESOLUTION
 // ============================================================================
@@ -122,6 +210,10 @@ const EXTENSIONS = [
   '.go',
   // Rust
   '.rs', '/mod.rs',
+  // PHP
+  '.php', '.phtml',
+  // Swift
+  '.swift',
 ];
 
 /**
@@ -276,6 +368,15 @@ const resolveImportPath = (
   if (resolveCache.has(cacheKey)) return resolveCache.get(cacheKey) ?? null;
 
   const cache = (result: string | null): string | null => {
+    // Evict oldest 20% when cap is reached instead of clearing all
+    if (resolveCache.size >= RESOLVE_CACHE_CAP) {
+      const evictCount = Math.floor(RESOLVE_CACHE_CAP * 0.2);
+      const iter = resolveCache.keys();
+      for (let i = 0; i < evictCount; i++) {
+        const key = iter.next().value;
+        if (key !== undefined) resolveCache.delete(key);
+      }
+    }
     resolveCache.set(cacheKey, result);
     return result;
   };
@@ -552,6 +653,48 @@ function resolveGoPackage(
 }
 
 // ============================================================================
+// PHP PSR-4 IMPORT RESOLUTION
+// ============================================================================
+
+/**
+ * Resolve a PHP use-statement import path using PSR-4 mappings.
+ * e.g. "App\Http\Controllers\UserController" -> "app/Http/Controllers/UserController.php"
+ */
+function resolvePhpImport(
+  importPath: string,
+  composerConfig: ComposerConfig | null,
+  allFiles: Set<string>,
+  normalizedFileList: string[],
+  allFileList: string[],
+  index?: SuffixIndex,
+): string | null {
+  // Normalize: replace backslashes with forward slashes
+  const normalized = importPath.replace(/\\/g, '/');
+
+  // Try PSR-4 resolution if composer.json was found
+  if (composerConfig) {
+    // Sort namespaces by length descending (longest match wins)
+    const sorted = [...composerConfig.psr4.entries()].sort((a, b) => b[0].length - a[0].length);
+    for (const [nsPrefix, dirPrefix] of sorted) {
+      const nsPrefixSlash = nsPrefix.replace(/\\/g, '/');
+      if (normalized.startsWith(nsPrefixSlash + '/') || normalized === nsPrefixSlash) {
+        const remainder = normalized.slice(nsPrefixSlash.length).replace(/^\//, '');
+        const filePath = dirPrefix + (remainder ? '/' + remainder : '') + '.php';
+        if (allFiles.has(filePath)) return filePath;
+        if (index) {
+          const result = index.getInsensitive(filePath);
+          if (result) return result;
+        }
+      }
+    }
+  }
+
+  // Fallback: suffix matching (works without composer.json)
+  const pathParts = normalized.split('/').filter(Boolean);
+  return suffixResolve(pathParts, normalizedFileList, allFileList, index);
+}
+
+// ============================================================================
 // MAIN IMPORT PROCESSOR
 // ============================================================================
 
@@ -562,12 +705,13 @@ export const processImports = async (
   importMap: ImportMap,
   onProgress?: (current: number, total: number) => void,
   repoRoot?: string,
+  allPaths?: string[],
 ) => {
-  // Create a Set of all file paths for fast lookup during resolution
-  const allFilePaths = new Set(files.map(f => f.path));
+  // Use allPaths (full repo) when available for cross-chunk resolution, else fall back to chunk files
+  const allFileList = allPaths ?? files.map(f => f.path);
+  const allFilePaths = new Set(allFileList);
   const parser = await loadParser();
   const resolveCache = new Map<string, string | null>();
-  const allFileList = files.map(f => f.path);
   // Pre-compute normalized file list once (forward slashes)
   const normalizedFileList = allFileList.map(p => p.replace(/\\/g, '/'));
   // Build suffix index for O(1) lookups
@@ -581,6 +725,8 @@ export const processImports = async (
   const effectiveRoot = repoRoot || '';
   const tsconfigPaths = await loadTsconfigPaths(effectiveRoot);
   const goModule = await loadGoModulePath(effectiveRoot);
+  const composerConfig = await loadComposerConfig(effectiveRoot);
+  const swiftPackageConfig = await loadSwiftPackageConfig(effectiveRoot);
 
   // Helper: add an IMPORTS edge + update import map
   const addImportEdge = (filePath: string, resolvedPath: string) => {
@@ -705,6 +851,34 @@ export const processImports = async (
           // Fall through if no files found (package might be external)
         }
 
+        // ---- PHP: handle namespace-based imports (use statements) ----
+        if (language === SupportedLanguages.PHP) {
+          const resolved = resolvePhpImport(rawImportPath, composerConfig, allFilePaths, normalizedFileList, allFileList, index);
+          if (resolved) {
+            addImportEdge(file.path, resolved);
+          }
+          return;
+        }
+
+        // ---- Swift: handle module imports ----
+        if (language === SupportedLanguages.Swift && swiftPackageConfig) {
+          // Swift imports are module names: `import SiuperModel`
+          // Resolve to the module's source directory → all .swift files in it
+          const targetDir = swiftPackageConfig.targets.get(rawImportPath);
+          if (targetDir) {
+            // Find all .swift files in this target directory
+            const dirPrefix = targetDir + '/';
+            for (const filePath2 of allFileList) {
+              if (filePath2.startsWith(dirPrefix) && filePath2.endsWith('.swift')) {
+                addImportEdge(file.path, filePath2);
+              }
+            }
+            return;
+          }
+          // External framework (Foundation, UIKit, etc.) — skip
+          return;
+        }
+
         // ---- Standard single-file resolution ----
         const resolvedPath = resolveImportPath(
           file.path,
@@ -738,18 +912,15 @@ export const processImports = async (
 
 export const processImportsFromExtracted = async (
   graph: KnowledgeGraph,
-  files: { path: string; content: string }[],
+  files: { path: string }[],
   extractedImports: ExtractedImport[],
   importMap: ImportMap,
   onProgress?: (current: number, total: number) => void,
   repoRoot?: string,
+  prebuiltCtx?: ImportResolutionContext,
 ) => {
-  const allFilePaths = new Set(files.map(f => f.path));
-  const resolveCache = new Map<string, string | null>();
-  const allFileList = files.map(f => f.path);
-  const normalizedFileList = allFileList.map(p => p.replace(/\\/g, '/'));
-  // Build suffix index for O(1) lookups
-  const index = buildSuffixIndex(normalizedFileList, allFileList);
+  const ctx = prebuiltCtx ?? buildImportResolutionContext(files.map(f => f.path));
+  const { allFilePaths, allFileList, normalizedFileList, suffixIndex: index, resolveCache } = ctx;
 
   let totalImportsFound = 0;
   let totalImportsResolved = 0;
@@ -757,6 +928,8 @@ export const processImportsFromExtracted = async (
   const effectiveRoot = repoRoot || '';
   const tsconfigPaths = await loadTsconfigPaths(effectiveRoot);
   const goModule = await loadGoModulePath(effectiveRoot);
+  const composerConfig = await loadComposerConfig(effectiveRoot);
+  const swiftPackageConfig = await loadSwiftPackageConfig(effectiveRoot);
 
   const addImportEdge = (filePath: string, resolvedPath: string) => {
     const sourceId = generateId('File', filePath);
@@ -854,6 +1027,30 @@ export const processImportsFromExtracted = async (
           }
           continue;
         }
+      }
+
+      // PHP: handle namespace-based imports (use statements)
+      if (language === SupportedLanguages.PHP) {
+        const resolved = resolvePhpImport(rawImportPath, composerConfig, allFilePaths, normalizedFileList, allFileList, index);
+        if (resolved) {
+          resolveCache.set(cacheKey, resolved);
+          addImportEdge(filePath, resolved);
+        }
+        continue;
+      }
+
+      // Swift: handle module imports
+      if (language === SupportedLanguages.Swift && swiftPackageConfig) {
+        const targetDir = swiftPackageConfig.targets.get(rawImportPath);
+        if (targetDir) {
+          const dirPrefix = targetDir + '/';
+          for (const fp of allFileList) {
+            if (fp.startsWith(dirPrefix) && fp.endsWith('.swift')) {
+              addImportEdge(filePath, fp);
+            }
+          }
+        }
+        continue;
       }
 
       // Standard resolution (has its own internal cache)
